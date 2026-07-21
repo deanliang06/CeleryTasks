@@ -2,98 +2,106 @@ package main
 
 import (
 	"fmt"
-	"time"
 	"sync"
+	"time"
 )
-
-type Result struct {
-	ID int
-	ActResult any
-}
 
 type Task struct {
 	id int
-	Func func() any
+	Func func() (any, error)
 }
 
 type Celery struct {
-	Result chan Result
 	Wait chan Task
-	Workers int
-	NextID int
+	NextID int	
+	IDMut sync.Mutex
+	wg sync.WaitGroup
 }
 
-func (c *Celery) addTask(f func() any) (string, error) {
+func initCelery(numWorkers int) *Celery {
+	wg := sync.WaitGroup{}
+
+	c:=Celery{
+		Wait: make(chan Task, 100),
+		NextID: 0,
+		IDMut: sync.Mutex{},
+		wg: wg,
+	}
+
+	for i := range numWorkers {
+		go c.initWorker(i)
+	}
+
+	return &c
+} 
+
+func (c *Celery) addTask(f func() (any, error)) (string, error) {
+	c.IDMut.Lock()
 	task := Task{
 		id:c.NextID,
 		Func: f,
 	}
+	c.NextID++
+	c.IDMut.Unlock()
 
 	c.Wait <- task
-	go c.tryExecute()
-
-	c.NextID++
-
+	c.wg.Add(1)
 	return "Added", nil
 }
 
-func (c *Celery) tryExecute() (string, error) {
-	if c.Workers > 0 {
-		c.Workers--
-		task := <-c.c
-		c.Result <- Result{
-			ID: task.id,
-			ActResult: task.Func(),
+func (c *Celery) initWorker(index int) {
+	for task := range c.Wait {
+		res, e:=task.Func()
+		msg:=""
+		if e != nil {
+			msg=fmt.Sprintf("Worker %d failed in execution %d with result: %v\n",  index, task.id, e.Error())
+		} else {
+			msg=fmt.Sprintf("Worker %d completed %d with result: %v\n", index, task.id, res)
 		}
-		c.Workers++
-		return "Let's go", nil
-	} else {
-		return "No more workers", nil
-	}
-}
 
-func (c *Celery) sync() {
-	for c.Workers != 8 {
-		time.Sleep(time.Second)
-	}
-
-	close(c.Result)
-
-	for result := range c.Result {
-		fmt.Println(result.ActResult)
+		fmt.Println(msg)
+		c.wg.Done()
 	}
 }
 
 
 func main() {
 
-	celeryQueue:=Celery{
-		Wait:make(chan Task, 100),
-		Workers:8,
-		NextID:1,
-	}
+	celeryQueue:=initCelery(8)
 	
+	timeStart:=time.Now()
 	celeryQueue.addTask(
-		func() any {
-			dog()
-			return "Bob"
+		func() (any, error) {
+			piss(2)
+			return "Bob", nil
 		},
 	)
 	celeryQueue.addTask(
-		func() any {
-			print("cat")
-			return "Duh"
+		func() (any, error) {
+			piss(3)
+			return "Duh", nil
 		},
 	)
 
-	celeryQueue.sync()
+	celeryQueue.addTask(
+		func() (any, error) {
+			piss(4)
+			return "Duh", nil
+		},
+	)
+
+	celeryQueue.addTask(
+		func() (any, error) {
+			piss(3)
+			return "Duh", nil
+		},
+	)
+	
+	celeryQueue.wg.Wait()
+
+	fmt.Println("This took %v secs", time.Since(timeStart))
 }
 
-func dog() {
-	fmt.Println("dog")
+func piss(secs int64) {
+	time.Sleep(time.Second * time.Duration(secs))
 }
-
-func print(s string) {
-	fmt.Println(s)
-}
-
