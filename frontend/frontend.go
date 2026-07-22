@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -26,7 +27,7 @@ type TaskCreation struct {
 }
 
 func pollServer(taskID int) (TaskStatus, error) {
-	res, err := http.Get("http://localhost:8000/getTask/" + string(taskID))
+	res, err := http.Get("http://localhost:8000/getTask/" + strconv.Itoa(taskID))
 	if err != nil {
 		panic(err)
 	}
@@ -80,5 +81,9 @@ func doTask(taskType string, url string) (any, error) {
 }
 
 func main() {
-	result, e := doTask()
+	result, e := doTask("health", "https://pizzaposts.com/pizza/health")
+	if e != nil {
+		fmt.Println(e.Error())
+	}
+	fmt.Println(result)
 }
