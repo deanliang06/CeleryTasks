@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"sync"
-	"time"
+	"errors"
+	"net/http"
+	"github.com/redis/go-redis/v9"
+	"context"
 )
 
 type Task struct {
@@ -44,7 +47,14 @@ func initCelery(numWorkers int) *Celery {
 	return &c
 } 
 
-func (c *Celery) addTask(f func() (any, error)) (int, error) {
+func (c *Celery) addTask(taskType string, params ...any) (int, error) {
+	var f func() (any, error)
+	if taskType == "get_health" {
+		if (len(params) > 1 || len(params) < 1) {
+			return -1, errors.New("You shit the bed lil bro")
+		}
+		f=func() (any, error) {return getPage(params[0].(string))}
+	}
 	c.IDMut.Lock()
 	task := Task{
 		id:c.NextID,
@@ -114,61 +124,31 @@ func (c *Celery) reinitWorkers(numWorkers int) error {
 	return nil
 }
 
-
+//responsible for initiating workers which pull from redis queues
 func main() {
+	client:= redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+		Protocol: 2,
+	})
+
+	ctx := context.Background()
+
+	res15, err := client.RPush(ctx, "bikes:repairs", "bike:1").Result()
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(res15)
+
 
 	celeryQueue:=initCelery(8)
+	fmt.Println(celeryQueue)
 	
-	timeStart:=time.Now()
-	id1, _:=celeryQueue.addTask(
-		func() (any, error) {
-			piss(1)
-			return "Bob", nil
-		},
-	)
-	celeryQueue.addTask(
-		func() (any, error) {
-			piss(3)
-			return "Duh", nil
-		},
-	)
-
-	celeryQueue.addTask(
-		func() (any, error) {
-			piss(2)
-			return "Duh", nil
-		},
-	)
-
-	id4, _:=celeryQueue.addTask(
-		func() (any, error) {
-			piss(1)
-			return "Duh", nil
-		},
-	)
-
-	fmt.Println(celeryQueue.taskMap[id1].step)
-	fmt.Println(celeryQueue.taskMap[id4].step)
-
-
-	
-	celeryQueue.wg.Wait()
-	fmt.Println(celeryQueue.taskMap[id4].step)
-
-	celeryQueue.termWorkers()
-	celeryQueue.reinitWorkers(8)
-
-	celeryQueue.addTask(
-		func() (any, error) {
-			piss(3)
-			return "Duh", nil
-		},
-	)
-	celeryQueue.wg.Wait()
-
-	fmt.Println("This took", time.Since(timeStart))
 }
 
-func piss(secs int) {
-	time.Sleep(time.Second * time.Duration(secs))
+func getPage(url string) (any, error) {
+	return http.Get(url)
 }
