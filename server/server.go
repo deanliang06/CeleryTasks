@@ -34,10 +34,31 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func GetTask(w http.ResponseWriter, r *http.Request) {
+	var req healthForm
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		fmt.Println("error", err)
+	}
+
+	if req.TaskType == "get_health" {
+		client := redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "",
+			DB:       0,
+			Protocol: 2,
+		})
+		ctx := context.Background()
+		client.LPush(ctx, "taskQueue:toBe", req)
+	}
+}
+
 // responsible for handling task requests and adding to redis queue
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /addTask", addTask)
+	mux.HandleFunc("GET /getTask/{taskID}", getTaskInfo)
 
 	http.ListenAndServe(":8000", nil)
 }
