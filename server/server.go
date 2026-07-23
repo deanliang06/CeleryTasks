@@ -1,17 +1,28 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type healthForm struct {
+	Id       string `json:"id"`
 	TaskType string `json:"taskType"`
 	URL      string `json:"url"`
+}
+
+type mapEntry struct {
+	Id       string `json:"id"`
+	TaskType string `json:"taskType"`
+	Status   string `json:"status"`
+	Result   any    `json:"result"`
+	Url      string `json:"url"`
 }
 
 func addTask(w http.ResponseWriter, r *http.Request) {
@@ -29,36 +40,84 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 			DB:       0,
 			Protocol: 2,
 		})
+
 		ctx := context.Background()
-		client.LPush(ctx, "taskQueue:toBe", req)
+
+		IdToUse := uuid.New().String()
+		mapEntry := mapEntry{
+			Id:       IdToUse,
+			TaskType: req.TaskType,
+			Status:   "Queued",
+			Result:   "N/A",
+			Url:      req.URL,
+		}
+
+		marshalledMap, err := json.Marshal(mapEntry)
+		if err != nil {
+			panic(err)
+		}
+
+		err = client.HSet(ctx, "taskMap", IdToUse, marshalledMap).Err()
+		if err != nil {
+			panic(err)
+		}
+		req.Id = IdToUse
+
+		marshalledTask, err := json.Marshal(req)
+		if err != nil {
+			panic(err)
+		}
+
+		err = client.LPush(ctx, "taskQueue:toBe", marshalledTask).Err()
+		if err != nil {
+			panic(err)
+		}
+
+		unmarshaled, err := json.Marshal(req)
+		if err != nil {
+			panic(err)
+		}
+		w.Write(unmarshaled)
 	}
 }
 
-func GetTask(w http.ResponseWriter, r *http.Request) {
-	var req healthForm
+func getTaskInfo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("taskId")
+	client := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+		Protocol: 2,
+	})
 
-	err := json.NewDecoder(r.Body).Decode(&req)
+	ctx := context.Background()
+	boolRes, err := client.HExists(ctx, "taskMap", id).Result()
+	if !boolRes {
+		panic("Fuck you the key doesn't exist")
+	}
+	res, err := client.HGet(ctx, "taskMap", id).Result()
 	if err != nil {
-		fmt.Println("error", err)
+		panic(err)
 	}
 
-	if req.TaskType == "get_health" {
-		client := redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
-			Password: "",
-			DB:       0,
-			Protocol: 2,
-		})
-		ctx := context.Background()
-		client.LPush(ctx, "taskQueue:toBe", req)
+	var entry mapEntry
+	json.NewDecoder(bytes.NewReader([]byte(res))).Decode(&entry)
+
+	if entry.TaskType == "get_health" {
+		json.NewEncoder(w).Encode(entry)
+		fmt.Println("Ping")
 	}
+
 }
 
 // responsible for handling task requests and adding to redis queue
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /addTask", addTask)
-	mux.HandleFunc("GET /getTask/{taskID}", getTaskInfo)
+	mux.HandleFunc("GET /getTask/{taskId}", getTaskInfo)
 
-	http.ListenAndServe(":8000", nil)
+	err := http.ListenAndServe(":8000", mux)
+	if err != nil {
+		fmt.Println("errors shit", err.Error())
+	}
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -16,18 +15,19 @@ type healthForm struct {
 }
 
 type TaskStatus struct {
-	Id       int    `json:"id"`
+	Id       string `json:"id"`
 	TaskType string `json:"taskType"`
 	Status   string `json:"status"`
 	Result   any    `json:"result"`
+	Url      string `json:"url"`
 }
 
 type TaskCreation struct {
-	Id int `json:"id"`
+	Id string `json:"id"`
 }
 
-func pollServer(taskID int) (TaskStatus, error) {
-	res, err := http.Get("http://localhost:8000/getTask/" + strconv.Itoa(taskID))
+func pollServer(taskID string) (TaskStatus, error) {
+	res, err := http.Get("http://localhost:8000/getTask/" + taskID)
 	if err != nil {
 		panic(err)
 	}
@@ -75,13 +75,15 @@ func doTask(taskType string, url string) (any, error) {
 			return status.Result, nil
 		}
 
+		fmt.Println("Pong")
+
 		time.Sleep(time.Second * 5)
 	}
 
 }
 
 func main() {
-	result, e := doTask("health", "https://pizzaposts.com/pizza/health")
+	result, e := doTask("get_health", "https://pizzaposts.com/pizza/health")
 	if e != nil {
 		fmt.Println(e.Error())
 	}
