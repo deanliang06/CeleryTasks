@@ -15,6 +15,7 @@ type healthForm struct {
 	Id       string `json:"id"`
 	TaskType string `json:"taskType"`
 	URL      string `json:"url"`
+	Tries    int    `json:"tries"`
 }
 
 type mapEntry struct {
@@ -40,6 +41,7 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 			DB:       0,
 			Protocol: 2,
 		})
+		fmt.Println(client)
 
 		ctx := context.Background()
 
@@ -59,9 +61,11 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 
 		err = client.HSet(ctx, "taskMap", IdToUse, marshalledMap).Err()
 		if err != nil {
+			fmt.Println("Redis connection is problemo")
 			panic(err)
 		}
 		req.Id = IdToUse
+		req.Tries = 0
 
 		marshalledTask, err := json.Marshal(req)
 		if err != nil {
