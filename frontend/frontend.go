@@ -40,7 +40,7 @@ func pollServer(taskID string) (TaskStatus, error) {
 	return status, nil
 }
 
-func doTask(taskType string, url string) (any, error) {
+func doTask(taskType, url string) (any, error) {
 	payload := healthForm{
 		TaskType: taskType,
 		URL:      url,
@@ -80,9 +80,22 @@ func doTask(taskType string, url string) (any, error) {
 }
 
 func main() {
-	result, e := doTask("get_health", "https://pizzaposts.com/pizza/health")
-	if e != nil {
-		fmt.Println(e.Error())
+	uptime("https://pizzaposts.com/pizza/health", "get_health", "{\"detail\": \"healthy\"}")
+}
+
+func uptime(endpoint, taskType, healthyRes string) {
+	var total, healthy float32
+	healthy = 0
+	total = 0
+	for {
+		result, e := doTask(taskType, endpoint)
+		if e != nil {
+			fmt.Println(e.Error())
+		} else if result == healthyRes {
+			healthy++
+		}
+		total++
+		fmt.Printf("%s has uptime of %.2f%%\n", endpoint, healthy/total*100)
+		time.Sleep(time.Second * 30)
 	}
-	fmt.Println(result)
 }
