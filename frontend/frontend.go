@@ -74,9 +74,6 @@ func doTask(taskType string, url string) (any, error) {
 		if status.Status == "success" {
 			return status.Result, nil
 		}
-
-		fmt.Println("Pong")
-
 		time.Sleep(time.Second * 5)
 	}
 

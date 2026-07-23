@@ -41,7 +41,6 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 			DB:       0,
 			Protocol: 2,
 		})
-		fmt.Println(client)
 
 		ctx := context.Background()
 
@@ -49,7 +48,7 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 		mapEntry := mapEntry{
 			Id:       IdToUse,
 			TaskType: req.TaskType,
-			Status:   "Queued",
+			Status:   "queued",
 			Result:   "N/A",
 			Url:      req.URL,
 		}

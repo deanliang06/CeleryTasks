@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -10,10 +14,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var maxTries int = 3
+
 type QueueTask struct {
 	Id       string `json:"id"`
 	TaskType string `json:"taskType"`
 	URL      string `json:"url"`
+}
+
+type MapEntry struct {
+	Id       string `json:"id"`
+	TaskType string `json:"taskType"`
+	Status   string `json:"status"`
+	Result   any    `json:"result"`
+	Url      string `json:"url"`
 	Tries    int    `json:"tries"`
 }
 
@@ -52,26 +66,101 @@ func initWorker(index int) {
 		var unMarshTask QueueTask
 		json.Unmarshal([]byte(task[1]), &unMarshTask)
 
-		// task.step = "running"
-		// res, e := task.Func()
-		// msg := ""
-		// if e != nil {
-		// 	msg = fmt.Sprintf("Worker %d failed in execution of task with id %d with result: %v\n", index, task.id, e.Error())
-		// 	task.step = "waiting"
-		// 	task.tries++
+		var taskInfo MapEntry
+		entry, err := client.HGet(ctx, "taskMap", unMarshTask.Id).Result()
+		if err != nil {
+			panic(err)
+		}
 
-		// 	fmt.Println(msg)
-		// } else {
-		// 	msg = fmt.Sprintf("Worker %d completed %d with result: %v\n", index, task.id, res)
-		// 	task.step = "completed"
-		// 	fmt.Println(msg)
-		// }
+		json.Unmarshal([]byte(entry), &taskInfo)
+		newTries := taskInfo.Tries + 1
+
+		changeMap(ctx, client, taskInfo.Id, "executing", newTries)
+
+		if taskInfo.TaskType != "get_health" {
+			panic(errors.New("Not accepted task type"))
+		}
+		res, e := getPage(taskInfo.Url)
+
+		if e != nil {
+			msg := fmt.Sprintf("Worker %d failed in execution of task with id %d with result: %v\n", index, taskInfo.Id, e.Error())
+			if taskInfo.Tries+1 >= maxTries {
+				changeMap(ctx, client, taskInfo.Id, "failed", newTries)
+			} else {
+				changeMap(ctx, client, taskInfo.Id, "queued", newTries)
+				err := reinsertQueue(ctx, client, unMarshTask)
+				if err != nil {
+					panic(err)
+				}
+			}
+			fmt.Println(msg)
+		} else {
+			byteRes, err := io.ReadAll(res.Body)
+			if err != nil {
+				panic(err)
+			}
+
+			stringRes := string(byteRes)
+			res.Body.Close()
+
+			msg := fmt.Sprintf("Worker %d completed task with id %s with result: %v\n", index, taskInfo.Id, stringRes)
+			changeMap(ctx, client, taskInfo.Id, "success", newTries)
+			setMapResult(ctx, client, taskInfo.Id, stringRes)
+			fmt.Println(msg)
+		}
 	}
 }
 
-// func reinsertQueue(task QueueTask) error {
+func setMapResult(ctx context.Context, client *redis.Client, id string, result string) {
+	res, err := client.HGet(ctx, "taskMap", id).Result()
+	if err != nil {
+		panic(err)
+	}
 
-// }
+	var entry MapEntry
+	json.Unmarshal([]byte(res), &entry)
+	entry.Result = result
+	byteEntry, err := json.Marshal(entry)
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.HSet(ctx, "taskMap", id, byteEntry).Err()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func changeMap(ctx context.Context, client *redis.Client, id string, status string, tries int) {
+	res, err := client.HGet(ctx, "taskMap", id).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	var entry MapEntry
+	json.NewDecoder(bytes.NewReader([]byte(res))).Decode(&entry)
+
+	entry.Status = status
+	entry.Tries = tries
+
+	marshalled, err := json.Marshal(entry)
+	if err != nil {
+		panic(err)
+	}
+	err = client.HSet(ctx, "taskMap", id, marshalled).Err()
+	if err != nil {
+		panic(err)
+	}
+}
+func reinsertQueue(ctx context.Context, client *redis.Client, task QueueTask) error {
+	marsh, err := json.Marshal(task)
+	if err != nil {
+		panic(err)
+	}
+
+	client.LPush(ctx, "taskQueue:toBe", marsh)
+	return nil
+}
 
 // func (c *Celery) termWorkers() {
 // 	close(c.Stop)
@@ -94,6 +183,6 @@ func main() {
 	select {}
 }
 
-func getPage(url string) (any, error) {
+func getPage(url string) (*http.Response, error) {
 	return http.Get(url)
 }

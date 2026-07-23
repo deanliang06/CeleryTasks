@@ -1,1 +1,1 @@
-Go coding learning so that I am no inept 
+Go coding learning so that I am not inept 
