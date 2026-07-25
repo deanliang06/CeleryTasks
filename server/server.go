@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -115,12 +116,26 @@ func getTaskInfo(w http.ResponseWriter, r *http.Request) {
 
 // responsible for handling task requests and adding to redis queue
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /addTask", addTask)
-	mux.HandleFunc("GET /getTask/{taskId}", getTaskInfo)
+	// mux := http.NewServeMux()
+	// mux.HandleFunc("POST /addTask", addTask)
+	// mux.HandleFunc("GET /getTask/{taskId}", getTaskInfo)
 
-	err := http.ListenAndServe(":8000", mux)
+	// err := http.ListenAndServe(":8000", mux)
+	// if err != nil {
+	// 	fmt.Println("errors shit", err.Error())
+	// }
+	testRedis()
+}
+
+func testRedis() {
+	conn, err := net.Dial("tcp", "localhost:6379")
 	if err != nil {
-		fmt.Println("errors shit", err.Error())
+		fmt.Println(err.Error())
+		return
+	}
+
+	defer conn.Close()
+	if _, err := conn.Write([]byte("Balls")); err != nil {
+		fmt.Println(err.Error())
 	}
 }
