@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -26,35 +29,66 @@ type Map struct {
 	actMap map[string][]byte
 }
 
+func parseLength(data []byte) (int, int, error) {
+	stringified := string(data)
+	var start int
+	for i, char := range stringified {
+		switch {
+		case char == '*':
+			start = i
+		case char == '\n':
+			return i - start, i + 1, nil
+		}
+	}
+	return 0, 0, errors.New("WTF is going on")
+}
 func handleConnection(conn net.Conn) {
-	fmt.Println(conn.LocalAddr())
 	total := make([]byte, 0)
 	bytes := make([]byte, 1000)
 
-	defer conn.Close()
+	parseSize := false
+	var dataLength, startOfData int
 	for {
 		n, err := conn.Read(bytes)
 		if n > 0 {
 			total = append(total, bytes[:n]...)
+			if parseSize && len(total)-startOfData >= dataLength {
+				output := handleRead(bytes, startOfData)
+				if output != nil {
+					conn.Write(formatOutput(output))
+				}
+
+				total = make([]byte, 0)
+				bytes = make([]byte, 1000)
+				parseSize = false
+			}
+			if strings.Contains(string(total), "\n") && !parseSize {
+				dataLength, startOfData, err = parseLength(total)
+				if err != nil {
+					panic(err)
+				}
+				parseSize = true
+			}
 		}
-		if err == io.EOF || n == 0 {
+		if err == io.EOF {
 			break
 		} else if err != nil {
 			panic(err)
 		}
 	}
-
-	output := handleRead(bytes)
-	if output != nil {
-		conn.Write(output)
-	}
 }
 
-func handleRead(bytes []byte) []byte {
-	stringMsg := strings.Split(string(bytes), "\n")
+func formatOutput(data []byte) []byte {
+	dataLength := len(data)
+	preFix := "*" + strconv.Itoa(dataLength) + "\n"
+	return slices.Concat([]byte(preFix), data)
+}
+
+func handleRead(bytes []byte, start int) []byte {
+	stringMsg := string(bytes)
 	fmt.Println(stringMsg)
-	typeMsg := stringMsg[1]
-	data := stringMsg[2]
+	typeMsg := stringMsg[:4]
+	data := stringMsg[start:]
 	return handleMsg(typeMsg, []byte(data))
 }
 
@@ -81,6 +115,6 @@ func main() {
 			fmt.Println(err.Error())
 		}
 
-		handleConnection(conn)
+		go handleConnection(conn)
 	}
 }
