@@ -132,11 +132,18 @@ func testRedis() {
 		fmt.Println(err)
 	}
 
-	conn.pushQueue([]byte("The little boy"))
-	conn.pushQueue([]byte("The big boy"))
-	conn.pushQueue([]byte("The medium-sized boy"))
+	conn.addMap("car1", []byte("Green and sassy"))
+	conn.addMap("car2", []byte("BLue and mellow"))
+	conn.addMap("car3", []byte("Red and sascwatch"))
 
-	output, err := conn.pollQueue()
+	output, err := conn.getMap("car1")
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(string(output))
+
+	output, err = conn.getMap("car3")
 	if err != nil {
 		fmt.Println(err)
 	}

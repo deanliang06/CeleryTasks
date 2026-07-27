@@ -6,7 +6,6 @@ import (
 	"net"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -28,6 +27,24 @@ type Map struct {
 	actMap map[string][]byte
 }
 
+func parseMapPayload(data []byte) (string, []byte) {
+	stringified := string(data)
+	endStart := -1
+	start := 1
+	for i, char := range stringified {
+		if char == '\r' {
+			endStart = i
+		}
+	}
+
+	idLength, err := strconv.Atoi(stringified[start:endStart])
+	if err != nil {
+		panic(err)
+	}
+
+	return stringified[endStart+1 : endStart+idLength+1], []byte(stringified[endStart+idLength+1:])
+
+}
 func parseLength(data []byte) (int, int) {
 	stringified := string(data)
 	var start int
@@ -53,10 +70,9 @@ func handleConnection(conn net.Conn) {
 	var dataLength, startOfData int
 	for {
 		n, err := conn.Read(bytes)
-
 		total = append(total, bytes[:n]...)
 		for len(total) > 0 && startOfData != -1 {
-			if strings.Contains(string(total), "\n") && !parseSize {
+			if !parseSize {
 				dataLength, startOfData = parseLength(total)
 				parseSize = true
 			}
@@ -91,7 +107,6 @@ func handleRead(bytes []byte, start, length int) []byte {
 	stringMsg := string(bytes)
 	typeMsg := stringMsg[:4]
 	data := stringMsg[start : start+length]
-	fmt.Println(typeMsg, data)
 	return handleMsg(typeMsg, []byte(data))
 }
 
@@ -101,6 +116,10 @@ func handleMsg(msgType string, data []byte) []byte {
 		return pollQueue()
 	case msgType == "push":
 		return pushQueue(data)
+	case msgType == "addM":
+		return addMap(data)
+	case msgType == "getM":
+		return getMap(data)
 	default:
 		return nil
 	}
