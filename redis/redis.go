@@ -15,11 +15,12 @@ type LinkNode struct {
 }
 
 type Queue struct {
-	head *LinkNode
-	tail *LinkNode
+	head     *LinkNode
+	tail     *LinkNode
+	pollLock sync.Mutex
 }
 
-var queue = Queue{head: nil, tail: nil}
+var queue = Queue{head: nil, tail: nil, pollLock: sync.Mutex{}}
 var taskMap = Map{mut: sync.Mutex{}, actMap: make(map[string][]byte)}
 
 type Map struct {
@@ -120,6 +121,8 @@ func handleMsg(msgType string, data []byte) []byte {
 		return addMap(data)
 	case msgType == "getM":
 		return getMap(data)
+	case msgType == "wait":
+		return waitQueue()
 	default:
 		return nil
 	}

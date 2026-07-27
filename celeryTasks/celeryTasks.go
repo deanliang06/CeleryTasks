@@ -2,16 +2,12 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"encoding/json"
-
-	"github.com/redis/go-redis/v9"
 )
 
 var maxTries int = 3
@@ -31,43 +27,29 @@ type MapEntry struct {
 	Tries    int    `json:"tries"`
 }
 
-// type Celery struct {
-// 	// Stop chan struct{}
-// 	// workerWG sync.WaitGroup
-// }
-
 func initCelery(numWorkers int) {
-	// c := Celery{
-	// 	// Stop: make(chan struct{}),
-	// 	// workerWG: sync.WaitGroup{},
-	// }
 
 	for i := range numWorkers {
-		// c.workerWG.Add(1)
 		go initWorker(i)
 	}
 }
 
 func initWorker(index int) {
-	ctx := context.Background()
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-		Protocol: 2,
-	})
-
+	client, err := initConn("localhost:8080")
+	if err != nil {
+		panic(err)
+	}
 	for {
-		task, err := client.BRPop(ctx, time.Hour, "taskQueue:toBe").Result()
+		task, err := client.waitQueue()
 		if err != nil {
 			panic(err)
 		}
 
 		var unMarshTask QueueTask
-		json.Unmarshal([]byte(task[1]), &unMarshTask)
+		json.Unmarshal(task, &unMarshTask)
 
 		var taskInfo MapEntry
-		entry, err := client.HGet(ctx, "taskMap", unMarshTask.Id).Result()
+		entry, err := client.getMap(unMarshTask.Id)
 		if err != nil {
 			panic(err)
 		}
@@ -75,7 +57,7 @@ func initWorker(index int) {
 		json.Unmarshal([]byte(entry), &taskInfo)
 		newTries := taskInfo.Tries + 1
 
-		changeMap(ctx, client, taskInfo.Id, "executing", newTries)
+		changeMap(client, taskInfo.Id, "executing", newTries)
 
 		if taskInfo.TaskType != "get_health" {
 			panic(errors.New("Not accepted task type"))
@@ -85,10 +67,10 @@ func initWorker(index int) {
 		if e != nil {
 			msg := fmt.Sprintf("Worker %d failed in execution of task with id %d with result: %v\n", index, taskInfo.Id, e.Error())
 			if taskInfo.Tries+1 >= maxTries {
-				changeMap(ctx, client, taskInfo.Id, "failed", newTries)
+				changeMap(client, taskInfo.Id, "failed", newTries)
 			} else {
-				changeMap(ctx, client, taskInfo.Id, "queued", newTries)
-				err := reinsertQueue(ctx, client, unMarshTask)
+				changeMap(client, taskInfo.Id, "queued", newTries)
+				err := reinsertQueue(client, unMarshTask)
 				if err != nil {
 					panic(err)
 				}
@@ -104,15 +86,16 @@ func initWorker(index int) {
 			res.Body.Close()
 
 			msg := fmt.Sprintf("Worker %d completed task with id %s with result: %v\n", index, taskInfo.Id, stringRes)
-			changeMap(ctx, client, taskInfo.Id, "success", newTries)
-			setMapResult(ctx, client, taskInfo.Id, stringRes)
+			changeMap(client, taskInfo.Id, "success", newTries)
+			setMapResult(client, taskInfo.Id, stringRes)
 			fmt.Println(msg)
 		}
 	}
+	client.Close()
 }
 
-func setMapResult(ctx context.Context, client *redis.Client, id string, result string) {
-	res, err := client.HGet(ctx, "taskMap", id).Result()
+func setMapResult(client *redisConn, id string, result string) {
+	res, err := client.getMap(id)
 	if err != nil {
 		panic(err)
 	}
@@ -125,20 +108,20 @@ func setMapResult(ctx context.Context, client *redis.Client, id string, result s
 		panic(err)
 	}
 
-	err = client.HSet(ctx, "taskMap", id, byteEntry).Err()
+	err = client.addMap(id, byteEntry)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func changeMap(ctx context.Context, client *redis.Client, id string, status string, tries int) {
-	res, err := client.HGet(ctx, "taskMap", id).Result()
+func changeMap(client *redisConn, id string, status string, tries int) {
+	res, err := client.getMap(id)
 	if err != nil {
 		panic(err)
 	}
 
 	var entry MapEntry
-	json.NewDecoder(bytes.NewReader([]byte(res))).Decode(&entry)
+	json.NewDecoder(bytes.NewReader(res)).Decode(&entry)
 
 	entry.Status = status
 	entry.Tries = tries
@@ -147,35 +130,20 @@ func changeMap(ctx context.Context, client *redis.Client, id string, status stri
 	if err != nil {
 		panic(err)
 	}
-	err = client.HSet(ctx, "taskMap", id, marshalled).Err()
+	err = client.addMap(id, marshalled)
 	if err != nil {
 		panic(err)
 	}
 }
-func reinsertQueue(ctx context.Context, client *redis.Client, task QueueTask) error {
+func reinsertQueue(client *redisConn, task QueueTask) error {
 	marsh, err := json.Marshal(task)
 	if err != nil {
 		panic(err)
 	}
 
-	client.LPush(ctx, "taskQueue:toBe", marsh)
+	client.pushQueue(marsh)
 	return nil
 }
-
-// func (c *Celery) termWorkers() {
-// 	close(c.Stop)
-// }
-
-// func (c *Celery) reinitWorkers(numWorkers int) error {
-// 	c.workerWG.Wait()
-// 	c.Stop = make(chan struct{})
-
-// 	for i := range numWorkers {
-// 		go c.initWorker(i)
-// 	}
-
-// 	return nil
-// }
 
 // responsible for initiating workers which pull from redis queues
 func main() {

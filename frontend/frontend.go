@@ -96,6 +96,6 @@ func uptime(endpoint, taskType, healthyRes string) {
 		}
 		total++
 		fmt.Printf("%s has uptime of %.2f%%\n", endpoint, healthy/total*100)
-		time.Sleep(time.Second * 30)
+		time.Sleep(time.Second * 2)
 	}
 }

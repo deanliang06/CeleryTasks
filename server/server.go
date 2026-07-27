@@ -2,13 +2,11 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 type healthForm struct {
@@ -35,14 +33,10 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.TaskType == "get_health" {
-		client := redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
-			Password: "",
-			DB:       0,
-			Protocol: 2,
-		})
-
-		ctx := context.Background()
+		client, err := initConn("localhost:8080")
+		if err != nil {
+			panic(err)
+		}
 
 		IdToUse := uuid.New().String()
 		mapEntry := mapEntry{
@@ -58,7 +52,7 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 
-		err = client.HSet(ctx, "taskMap", IdToUse, marshalledMap).Err()
+		err = client.addMap(IdToUse, marshalledMap)
 		if err != nil {
 			fmt.Println("Redis connection is problemo")
 			panic(err)
@@ -70,8 +64,7 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			panic(err)
 		}
-
-		err = client.LPush(ctx, "taskQueue:toBe", marshalledTask).Err()
+		err = client.pushQueue(marshalledTask)
 		if err != nil {
 			panic(err)
 		}
@@ -81,24 +74,18 @@ func addTask(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		w.Write(unmarshaled)
+		client.Close()
 	}
 }
 
 func getTaskInfo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("taskId")
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-		Protocol: 2,
-	})
-
-	ctx := context.Background()
-	boolRes, err := client.HExists(ctx, "taskMap", id).Result()
-	if !boolRes {
-		panic("Fuck you the key doesn't exist")
+	client, err := initConn("localhost:8080")
+	if err != nil {
+		panic(err)
 	}
-	res, err := client.HGet(ctx, "taskMap", id).Result()
+
+	res, err := client.getMap(id)
 	if err != nil {
 		panic(err)
 	}
@@ -108,47 +95,46 @@ func getTaskInfo(w http.ResponseWriter, r *http.Request) {
 
 	if entry.TaskType == "get_health" {
 		json.NewEncoder(w).Encode(entry)
-		fmt.Println("Ping")
 	}
-
+	client.Close()
 }
 
 // responsible for handling task requests and adding to redis queue
 func main() {
-	// mux := http.NewServeMux()
-	// mux.HandleFunc("POST /addTask", addTask)
-	// mux.HandleFunc("GET /getTask/{taskId}", getTaskInfo)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /addTask", addTask)
+	mux.HandleFunc("GET /getTask/{taskId}", getTaskInfo)
 
-	// err := http.ListenAndServe(":8000", mux)
-	// if err != nil {
-	// 	fmt.Println("errors shit", err.Error())
-	// }
-	testRedis()
+	err := http.ListenAndServe(":8000", mux)
+	if err != nil {
+		fmt.Println("errors shit", err.Error())
+	}
+	// testRedis()
 }
 
-func testRedis() {
-	conn, err := initConn("localhost:8080")
-	if err != nil {
-		fmt.Println(err)
-	}
+// func testRedis() {
+// 	conn, err := initConn("localhost:8080")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
 
-	conn.addMap("car1", []byte("Green and sassy"))
-	conn.addMap("car2", []byte("BLue and mellow"))
-	conn.addMap("car3", []byte("Red and sascwatch"))
+// 	conn.addMap("car1", []byte("Green and sassy"))
+// 	conn.addMap("car2", []byte("BLue and mellow"))
+// 	conn.addMap("car3", []byte("Red and sascwatch"))
 
-	output, err := conn.getMap("car1")
-	if err != nil {
-		fmt.Println(err)
-	}
+// 	output, err := conn.getMap("car1")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
 
-	fmt.Println(string(output))
+// 	fmt.Println(string(output))
 
-	output, err = conn.getMap("car3")
-	if err != nil {
-		fmt.Println(err)
-	}
+// 	output, err = conn.getMap("car3")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
 
-	fmt.Println(string(output))
+// 	fmt.Println(string(output))
 
-	conn.Close()
-}
+// 	conn.Close()
+// }

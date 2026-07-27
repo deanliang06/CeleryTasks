@@ -57,6 +57,15 @@ func (redisConn *redisConn) pollQueue() ([]byte, error) {
 	return readFrom, nil
 }
 
+func (redisConn *redisConn) waitQueue() ([]byte, error) {
+	payload := createQueuePayload("wait", make([]byte, 0))
+	if _, err := redisConn.conn.Write(payload); err != nil {
+		return nil, err
+	}
+	readFrom := redisConn.readFromConnection()
+	return readFrom, nil
+}
+
 func (redisConn *redisConn) addMap(id string, data []byte) error {
 	payload := createMapPayload("addM", id, data)
 	if _, err := redisConn.conn.Write(payload); err != nil {
