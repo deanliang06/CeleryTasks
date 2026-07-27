@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -29,7 +28,7 @@ type Map struct {
 	actMap map[string][]byte
 }
 
-func parseLength(data []byte) (int, int, error) {
+func parseLength(data []byte) (int, int) {
 	stringified := string(data)
 	var start int
 	for i, char := range stringified {
@@ -37,10 +36,14 @@ func parseLength(data []byte) (int, int, error) {
 		case char == '*':
 			start = i
 		case char == '\n':
-			return i - start, i + 1, nil
+			len, err := strconv.Atoi(string(data[start+1 : i]))
+			if err != nil {
+				panic(err)
+			}
+			return len, i + 1
 		}
 	}
-	return 0, 0, errors.New("WTF is going on")
+	return -1, -1
 }
 func handleConnection(conn net.Conn) {
 	total := make([]byte, 0)
@@ -50,26 +53,26 @@ func handleConnection(conn net.Conn) {
 	var dataLength, startOfData int
 	for {
 		n, err := conn.Read(bytes)
-		if n > 0 {
-			total = append(total, bytes[:n]...)
+
+		total = append(total, bytes[:n]...)
+		for len(total) > 0 && startOfData != -1 {
+			if strings.Contains(string(total), "\n") && !parseSize {
+				dataLength, startOfData = parseLength(total)
+				parseSize = true
+			}
+
 			if parseSize && len(total)-startOfData >= dataLength {
-				output := handleRead(bytes, startOfData)
+				output := handleRead(total, startOfData, dataLength)
 				if output != nil {
 					conn.Write(formatOutput(output))
 				}
 
-				total = make([]byte, 0)
+				total = total[startOfData+dataLength:]
 				bytes = make([]byte, 1000)
 				parseSize = false
 			}
-			if strings.Contains(string(total), "\n") && !parseSize {
-				dataLength, startOfData, err = parseLength(total)
-				if err != nil {
-					panic(err)
-				}
-				parseSize = true
-			}
 		}
+
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -84,11 +87,11 @@ func formatOutput(data []byte) []byte {
 	return slices.Concat([]byte(preFix), data)
 }
 
-func handleRead(bytes []byte, start int) []byte {
+func handleRead(bytes []byte, start, length int) []byte {
 	stringMsg := string(bytes)
-	fmt.Println(stringMsg)
 	typeMsg := stringMsg[:4]
-	data := stringMsg[start:]
+	data := stringMsg[start : start+length]
+	fmt.Println(typeMsg, data)
 	return handleMsg(typeMsg, []byte(data))
 }
 

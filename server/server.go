@@ -133,6 +133,15 @@ func testRedis() {
 	}
 
 	conn.pushQueue([]byte("The little boy"))
-	fmt.Println(conn.pollQueue())
+	conn.pushQueue([]byte("The big boy"))
+	conn.pushQueue([]byte("The medium-sized boy"))
+
+	output, err := conn.pollQueue()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(string(output))
+
 	conn.Close()
 }

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-	"fmt"
 	"io"
 	"net"
 	"slices"
@@ -10,7 +8,7 @@ import (
 	"strings"
 )
 
-func parseLength(data []byte) (int, int, error) {
+func parseLength(data []byte) (int, int) {
 	stringified := string(data)
 	var start int
 	for i, char := range stringified {
@@ -18,10 +16,14 @@ func parseLength(data []byte) (int, int, error) {
 		case char == '*':
 			start = i
 		case char == '\n':
-			return i - start, i + 1, nil
+			len, err := strconv.Atoi(string(data[start+1 : i]))
+			if err != nil {
+				panic(err)
+			}
+			return len, i + 1
 		}
 	}
-	return 0, 0, errors.New("WTF is going on")
+	return -1, -1
 }
 
 type redisConn struct {
@@ -57,7 +59,6 @@ func (redisConn *redisConn) pollQueue() ([]byte, error) {
 
 func createPayload(opType string, data []byte) []byte {
 	dataSize := len(data)
-	fmt.Println(dataSize)
 	toConvert := opType + "*" + strconv.Itoa(dataSize) + "\n"
 	return slices.Concat([]byte(toConvert), data)
 }
@@ -69,17 +70,16 @@ func (redisConn *redisConn) readFromConnection() []byte {
 	var dataLength, startOfData int
 	for {
 		n, err := redisConn.conn.Read(bytes)
-		if n > 0 {
-			total = append(total, bytes[:n]...)
-			if parseSize && len(total)-startOfData >= dataLength {
-				break
-			}
+		total = append(total, bytes[:n]...)
+		for len(total) > 0 && startOfData != -1 {
 			if strings.Contains(string(total), "\n") && !parseSize {
-				dataLength, startOfData, err = parseLength(total)
-				if err != nil {
-					panic(err)
-				}
+				dataLength, startOfData = parseLength(total)
 				parseSize = true
+			}
+			if parseSize && len(total)-startOfData >= dataLength {
+				total = total[startOfData+dataLength:]
+				bytes = make([]byte, 1000)
+				parseSize = false
 			}
 		}
 		if err == io.EOF {
