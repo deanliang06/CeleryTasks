@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -128,14 +127,12 @@ func main() {
 }
 
 func testRedis() {
-	conn, err := net.Dial("tcp", "localhost:6379")
+	conn, err := initConn("localhost:8080")
 	if err != nil {
-		fmt.Println(err.Error())
-		return
+		fmt.Println(err)
 	}
 
-	defer conn.Close()
-	if _, err := conn.Write([]byte("Balls")); err != nil {
-		fmt.Println(err.Error())
-	}
+	conn.pushQueue([]byte("The little boy"))
+	fmt.Println(conn.pollQueue())
+	conn.Close()
 }
