@@ -1,3 +1,5 @@
--Basically a distributed celery worker program + a redis server
+# CeleryTasks
 
-Learning to code in go so that I am not inept 
+A lightweight distributed task queue and Redis-compatible server built from scratch in Go.
+
+Created to learn TCP networking, concurrency, worker queues, and in-memory data storage.
